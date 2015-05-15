@@ -3,6 +3,12 @@
 include('log4php/Logger.php');
 require_once(dirname(__FILE__)."/../../config/config.php");
 
+# clear the cache if needed
+$l = get_logger("dashboard");
+if ($config["cache_ttl_status"] == 0) {
+	$l->info("Clearing cache as 'cache_ttl_status' is set to 0");
+	apc_clear_cache("user");
+}
 
 function get_logger($name) {
 	global $config;
@@ -119,6 +125,15 @@ function convert_seconds_to_duration ($seconds) {
 	}
 	return sprintf("%ds", $seconds);
 }
+
+function convert_seconds_to_hours ($seconds) {
+	return sprintf("%01.1f", $seconds / (60 * 60));
+}
+
+function convert_seconds_to_percentage ($seconds, $grouping) {
+	return sprintf("%01.1f", ($seconds * 100) / (60 * 60 * 24 * $grouping));
+}
+
 
 # to avoid the apc cache entries for different instances of the dashboard
 # to be confused, all key names are hashes of their names and the base directory

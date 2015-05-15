@@ -37,11 +37,6 @@ $priorities = Array();
 # initialize logger
 $l = get_logger("dashboard");
 
-if ($config["cache_ttl_status"] == 0) {
-	$l->info("Clearing cache as 'cache_ttl_status' is set to 0");
-	apc_clear_cache("user");
-}
-
 # get the alert information, using the defined backend type
 $statuses = null;
 $lookup_method = $config["status"]["backend_type"];
@@ -144,8 +139,8 @@ if ($priorities !== null) {
 if ($alert_history !== null) {
 	foreach ($alert_history as $type => $value) {
 		foreach ($alert_history[$type] as $key => $value) {
-			if (array_key_exists($statuses["status"][md5($key)])) {
-				$statuses["status"][md5($key)]["priority"] = $value;
+			if (array_key_exists(md5($key), $statuses["status"])) {
+				$statuses["status"][md5($key)]["alert_active"] = ($value == 1 ? true : false);
 			}
 		}
 	}
@@ -172,14 +167,16 @@ foreach ($statuses["status"] as $md5 => $subhash) {
 	$index++;
 }
 
-if ($config["show_last_ok"]) {
+if ($config["last_ok"]["enabled"]) {
 	if (!file_exists($config["dashboard_db"])) {
 		initialize_dashboard_db($config["dashboard_db"]);
 	}
 	# get the last status from the sqlite database
 	$last_state = get_last_state();
 	if (count($statuses["status"]) == 0) {
-		write_last_status("OK");
+		if ($last_state["state"] != "OK") { 
+			write_last_status("OK"); 
+		}
 	} else {
 		# there is an old state, and a new state also
 		$host_count = 0;
@@ -198,6 +195,7 @@ if ($config["show_last_ok"]) {
 				}
 			}
 		}
+		$l->debug($current_state . " vs " . $last_state["state"]);
 		if ($current_state != $last_state["state"]) {
 				write_last_status($current_state, $host_count, $crit_count, $warn_count);
 				$l->info("Writing updated state: " . $current_state);

@@ -2,19 +2,21 @@ $(function() {
 
     // templates to be used when creating tiles and messages
     $.templates = {};
-    $.templates.tiles = '<div id="{id}" class="tile-frame"> \
-                              <!-- index: {index}, left: {left}, top: {top} --> \
-                              <div class="alert alert-{state} tile"> \
-                                <div class="priority {priority_hidden}">{priority}</div> \
-                              <div class="service {service_hidden}">{service}</div> \
-                            <div class="host">{host}</div> \
-                            <div class="tag_holder"> \
-                              <span class="dashtag alert_active blink {alert_active_hidden}">alert active</span> \
-                              <span class="dashtag is_flapping {is_flapping_hidden}">flapping</span> \
-                              <span class="dashtag is_soft {is_soft_hidden}">SOFT</span> \
-                              <span class="dashtag">{duration}</span> \
-                            </div> \
-                          </div> \
+    $.templates.tiles = '<div id="{id}" class="tile-frame">\n\
+                          <!-- index: {index}, left: {left}, top: {top} -->\n\
+                          <div class="alert alert-{state} tile">\n\
+                            <div class="priority">{priority}</div>\n\
+                            <div class="tile-rest">\n\
+                              <div class="service {service_hidden}">{service}</div>\n\
+                              <div class="host">{host}</div>\n\
+                              <div class="tag_holder">\n\
+                                <span class="dashtag alert_active blink {alert_active_hidden}">alert active</span>\n\
+                                <span class="dashtag is_flapping {is_flapping_hidden}">flapping</span>\n\
+                                <span class="dashtag is_soft {is_soft_hidden}">SOFT</span>\n\
+                                <span class="dashtag">{duration}</span>\n\
+                              </div>\n\
+                            </div>\n\
+                          </div>\n\
                         </div>\n';
 
     $.templates.messages = {        
@@ -23,7 +25,7 @@ $(function() {
         msg_error: { container_template: {}, container: {} },
     };
 
-    $.templates.messages.msg_big.template = '<div id="{message_id}" class="msg_big alert alert-success msg_ok">{message}</div>';
+    $.templates.messages.msg_big.template = '<div id="{message_id}" class="msg_big alert-success msg_ok">{message}</div>';
     $.templates.messages.msg_big.container = "#msg_container_main";
 
     $.templates.messages.msg_loading.template = '<div id="{message_id}" class="spinner"> \
@@ -70,10 +72,10 @@ $(function() {
           state = "info";
         }
 
-		var priority_hidden = (object['priority'] == 0 ? "hidden" : "");
-		var alert_active_hidden = (object['alert_active'] == 0 ? "hidden" : "");
-		var is_flapping_hidden = (object['is_flapping'] == 0 ? "hidden" : "");
-		var is_soft_hidden = (object['is_soft'] == 0 ? "hidden" : "");
+		var priority = (object['priority'] == 0 ? "" : object['priority']);
+		var alert_active_hidden = (object['alert_active'] === true ? "" : "hidden");
+		var is_flapping_hidden = (object['is_flapping'] === true ? "" : "hidden");
+		var is_soft_hidden = (object['is_soft'] === true ? "" : "hidden");
 		var service_hidden = (object['type'] == "service" ? "" : "hidden");
 
 		// fill the template with values
@@ -83,8 +85,7 @@ $(function() {
 			left: left,
 			top: top,
 			state: state,
-			priority_hidden: priority_hidden,
-			priority: object["priority"],
+			priority: priority,
 			service_hidden: service_hidden,
 			service: ("service" in object ? object['service'].replace(/^Systemcheck/, "SC:") : null),
 			host: object["host"],
@@ -227,6 +228,14 @@ $(function() {
           $.frame_manager.queue_add("hide_msg", element);
           $.message_shown.type = null;
           $.message_shown.md5 = null;
+
+          // queue a display detection also
+          var element = {
+            func_name: detect_display_options,
+            parameters: [null, null, true],
+          }
+          $.frame_manager.queue_add("external_function", element);     
+
         }
       }
     };
@@ -248,7 +257,9 @@ $(function() {
     function delete_all_messages() {
       if ($("#msg_container_main").children().length) {
         console.debug("Deleting all messages");
-        $("#msg_container_main").fadeOut().empty();
+        $("#msg_container_main").fadeOut($.queue_tick_time * 2, function() {
+            $(this).empty();
+        });
       }
     };
 
@@ -847,79 +858,28 @@ $(function() {
         }
         $.frame_manager_infobar.queue_add("adjust_size", element, true);
 
+        lastok_chart.show[$.config.last_ok.chart.type](true);
+
       }
       return {columns: proposed_columns, rows: proposed_rows, tile_sizex: proposed_tile_sizex, tile_sizey: proposed_tile_sizey, tiles_max: proposed_tiles_max};
     };
 
-    // update the contents of the tiles so that they match the size of the tiles
+
+    // update the font size of the tile depending on the dimensions of the tile
+    // all CSS elements within the tile are using the 'em' unit so that their sizes
+    // are only depending on the font size of the parent element, that is, '.tile-frame'
+    //
+    // note:
     // this is a workaround for the fact that CSS can't scale elements relative to their parent 
     // containers, only to font sizes or viewport sizes
-    // fixme: try using eg values in css and only alter the font size of the CSS elements?
     function update_tile_text() {
-      // define scaling factors that provide the relative sizes inside a tile
-
-      // size of the service text
-      var scale_factor_text_service = 0.22;
-      // size of the host text
-      var scale_factor_text_host = 0.18;
-      // font size of the tags
-      var scale_factor_text_tag = 0.15;
-      // space between service and host text
-      var scale_factor_margin_service_host = -0.05;
-      // offset for host name for host problems
-      var scale_factor_margin_host = 0.05;
-      // padding of the service text on the top
-      var scale_factor_padding_service_top = 0.04;
-      // padding of the service text on the right
-      var scale_factor_padding_service_right = 0.07;
-      // padding of the tag holder - horizontally
-      var scale_factor_tag_padding_horizontal = 0.05;
-      // padding of the tag holder - vertically
-      var scale_factor_tag_padding_vertical = 0.001;
-      // the radius of the tags
-      var scale_factor_tag_border_radius = 0.03;
-      // space between the tags
-      var scale_factor_tag_margin_left = 0.01;
-      // the radius of the tiles
-      var scale_factor_tile_radius = 0.05;
-      // the padding of the tag holder at the bottom
-      var scale_factor_tag_holder_bottom = 0.04;
-      // the size of the priority text
-      var scale_factor_text_priority = 1;
-      // the padding of the priority text on the top
-      var scale_factor_margin_priority_top = -0.3;
       
       // assemble an associative array with the data that will be added to the DOM in the form of a new stylesheet
       var style_data = {};
-      style_data['.service'] = {};
-      style_data['.service']['font-size'] = Math.round($.tile_sizey * scale_factor_text_service) + "px";
-      style_data['.host'] = {};
-      style_data['.host']['font-size'] = Math.round($.tile_sizey * scale_factor_text_host) + "px";
-      style_data['.host']['margin-top'] = Math.round($.tile_sizey * scale_factor_margin_service_host) + "px";
-      style_data['.alert-down .host'] = {};
-      style_data['.alert-down .host']['font-size'] = Math.round($.tile_sizey * scale_factor_text_service) + "px";
-      style_data['.alert-down .host']['margin-top'] = Math.round($.tile_sizey * scale_factor_margin_host) + "px";
-      style_data['.dashtag'] = {};
-      style_data['.dashtag']['font-size'] = Math.round($.tile_sizey * scale_factor_text_tag) + "px";
-      style_data['.dashtag']['padding'] = "{0}px {1}px {0}px {1}px".format(Math.round($.tile_sizey * scale_factor_tag_padding_vertical), Math.round($.tile_sizey * scale_factor_tag_padding_horizontal));
-      style_data['.dashtag']['border-radius'] = Math.round($.tile_sizey * scale_factor_tag_border_radius) + "px";
-      style_data['.dashtag']['-moz-border-radius'] = style_data['.dashtag']['border-radius'];
-      style_data['.dashtag']['margin-left'] = Math.round($.tile_sizey * scale_factor_tag_margin_left) + "px";
-      style_data['.alert'] = {};
-      style_data['.alert']['border-radius'] = Math.round($.tile_sizey * scale_factor_tile_radius) + "px";
-      style_data['.alert']['-moz-border-radius'] = style_data['.alert']['border-radius'];
-      style_data['.alert']['padding-top'] = Math.round($.tile_sizey * scale_factor_padding_service_top) + "px";
-      style_data['.alert']['padding-right'] = Math.round($.tile_sizey * scale_factor_padding_service_right) + "px";
-      style_data['.tag_holder'] = {};
-      style_data['.tag_holder']['right'] = style_data['.alert']['padding-right'];
-      style_data['.tag_holder']['bottom'] = Math.round($.tile_sizey * scale_factor_tag_holder_bottom) + "px";
-      style_data['.priority'] = {};
-      style_data['.priority']['font-size'] = Math.round($.tile_sizey * scale_factor_text_priority) + "px";
-      style_data['.priority']['margin-top'] = Math.round($.tile_sizey * scale_factor_margin_priority_top) + "px";
-
+      style_data['.tile-frame'] = {};
+      style_data['.tile-frame']['font-size'] = Math.round($.tile_sizey * 0.108) + "px";
       // put the custom stylesheet in place
       add_style("title_updater", style_data);
-
     }
 
     // write a custom style tag to the head, generate the content from an associative array
@@ -962,24 +922,456 @@ $(function() {
         ajaxCall($.personnel_url, 'GET', null, successAction);
       };
 
+      lastok_chart = {
+
+        show: {
+
+          // show the bar chart
+          bar: function (no_refresh) {
+             // fill the data structure for the chart with the data that was fetched
+             successAction = function(json_data, status, xhr) {
+              if ($.lastok_chart_data === undefined) {
+                $.lastok_chart_data = new google.visualization.DataTable();
+                // add the columns, with custom roles for tooltips and coloring
+                $.lastok_chart_data.addColumn('string', "Date");
+                $.lastok_chart_data.addColumn('number', "OK");
+                $.lastok_chart_data.addColumn({type: 'string', role: 'tooltip'});
+                $.lastok_chart_data.addColumn({type: 'string', role: 'style'});
+                $.lastok_chart_data.addColumn('number', "Problem");
+                $.lastok_chart_data.addColumn({type: 'string', role: 'tooltip'});
+                $.lastok_chart_data.addColumn({type: 'string', role: 'style'});
+                $.lastok_chart_data.addRows($.assocArraySize(json_data));
+              }
+              // check if the number of rows needs to be adjusted
+              var animate = true;
+              var need_redraw = false;
+              if (($.lastok_chart_data.getNumberOfRows()) != $.assocArraySize(json_data)) {
+                if (($.lastok_chart_data.getNumberOfRows()) > $.assocArraySize(json_data)) {
+                  // need to remove rows
+                  $.lastok_chart_data.removeRows(0, $.lastok_chart_data.getNumberOfRows() - $.assocArraySize(json_data));
+                } else {
+                  // need to add more rows
+                  $.lastok_chart_data.addRows($.assocArraySize(json_data) - $.lastok_chart_data.getNumberOfRows());
+                }
+                need_redraw = true;
+                animate = false;
+              }
+
+              // populate the colums with data
+              for (var row = 0 ; row < $.assocArraySize(json_data) ; row++) {
+                var i=0;
+				
+				var formatterDate;
+				// formatter patterns from http://userguide.icu-project.org/formatparse/datetime#TOC-DateTimePatternGenerator
+				if (json_data[row+1]["grouping"] == "day") {
+					formatterDate = new google.visualization.DateFormat({pattern: 'EEE'});
+				} else if (json_data[row+1]["grouping"] == "week") {
+					formatterDate = new google.visualization.DateFormat({pattern: 'CWww'});
+				} else if (json_data[row+1]["grouping"] == "month") {
+					formatterDate = new google.visualization.DateFormat({pattern: 'MMM'});
+				} else {
+					// unrecognized
+					formatterDate = new google.visualization.DateFormat({pattern: 'yyyy.MM.dd'});
+				}
+
+                $.lastok_chart_data.setValue(row, i++, formatterDate.formatValue(new Date((json_data[row+1]["range_start"] + 1) * 1000)));
+                $.lastok_chart_data.setValue(row, i++, json_data[row+1]["duration_percent"]["OK"]);
+                $.lastok_chart_data.setValue(row, i++, "{0}: OK: {1}".format(json_data[row+1]["range_name_long"], 
+                                                       json_data[row+1]["duration_human"]["OK"]));
+                $.lastok_chart_data.setValue(row, i++, "stroke-color: {0}; fill-color: {1}".format($.config.last_ok.chart.bar.color.OK.outline,
+                                                                                                   $.config.last_ok.chart.bar.color.OK.fill));
+                $.lastok_chart_data.setValue(row, i++, json_data[row+1]["duration_percent"]["PROBLEM"]);
+                $.lastok_chart_data.setValue(row, i++, "{0}: Problem: {1}".format(json_data[row+1]["range_name_long"], 
+                                                       json_data[row+1]["duration_human"]["PROBLEM"]));            
+                $.lastok_chart_data.setValue(row, i++, "stroke-color: {0}; fill-color: {1}".format($.config.last_ok.chart.bar.color.PROBLEM.outline,
+                                                                                                   $.config.last_ok.chart.bar.color.PROBLEM.fill));
+              }
+              // finally, draw the chart
+              if (need_redraw) {
+                hide_lastok_chart();
+              }
+              draw_chart(animate);
+            }
+
+            // draw the chart based on the already filled data
+            draw_chart = function(animate) {
+              animate = animate || false;
+              if ($.lastok_chart_data !== undefined) {
+                if ($.lastok_chart === undefined) {
+                $("#chart-container").removeClass("hidden").hide();
+                  $.lastok_chart = new google.visualization.ColumnChart($("#chart-container")[0]);
+                }
+                // calculate the height and width of the chart - unfortuantely google charts is not responsive
+                // 12vw
+                var chart_width = ($(window).width() / 100) * 15;
+                var chart_height = ($(window).width() / 100) * 3.5;
+                var margin_top = ($(window).width() / 100) * 1.2 / 60 * 10;
+                var chart_options = {  width: chart_width,
+                                       height: chart_height,
+                                       backgroundColor: 'transparent',
+                                       animation: { duration: 0, easing: 'out', startup: false },
+                                       vAxis: { gridlines: { color: 'transparent' }, textPosition: 'none', baselineColor: 'transparent'},
+                                       hAxis: { gridlines: { color: 'transparent' }, format: "dd", textPosition: 'in', textStyle: { color: 'black', bold: false, fontName: 'Arial' }, baselineColor: 'transparent' },
+                                       isStacked: true,
+                                       legend: { position: 'none' },
+                                       bar: { groupWidth: '90%' },
+                                       chartArea: { left: 0, top: margin_top, width: '100%', height: '85%' },
+                             };
+                if (animate) {
+                  chart_options.animation.duration = 1000;
+                }
+                // draw the chart
+                $.lastok_chart.draw($.lastok_chart_data, chart_options);
+                // animate the display of the chart
+                $('#chart-container').show("blind", {direction: "down", easing: "easeOutCirc"}, 1000);
+              }
+            }
+
+            no_refresh = no_refresh || false;
+
+            if ($.config['last_ok']["chart"]['enabled'] === true) {
+              if (no_refresh !== true) {
+                ajaxCall($.lastok_chart_url, 'GET', null, successAction);
+                // set up next round
+                $.myTimeout("lastok_chart", lastok_chart.show[$.config.last_ok.chart.type], 2 * 60 * 1000);
+              } else {
+                draw_chart();
+              }
+            }
+          },
+
+          // line chart
+          line: function (no_refresh) {
+
+           // fill the data structure for the chart with the data that was fetched
+           successAction = function(json_data, status, xhr) {
+
+            if ($.lastok_chart_data === undefined) {
+              $.lastok_chart_data = new google.visualization.DataTable();
+              // add the columns, with custom roles for tooltips and coloring
+              $.lastok_chart_data.addColumn('string', "Date");
+              $.lastok_chart_data.addColumn('number', "OK");
+              $.lastok_chart_data.addColumn({type: 'string', role: 'tooltip'});
+              $.lastok_chart_data.addColumn({type: 'string', role: 'style'});
+              $.lastok_chart_data.addRows($.assocArraySize(json_data));
+            }
+
+            // check if the number of rows needs to be adjusted
+            if (($.lastok_chart_data.getNumberOfRows()) != $.assocArraySize(json_data)) {
+              if (($.lastok_chart_data.getNumberOfRows()) > $.assocArraySize(json_data)) {
+                // need to remove rows
+                $.lastok_chart_data.removeRows(0, $.lastok_chart_data.getNumberOfRows() - $.assocArraySize(json_data));
+              } else {
+                // need to add more rows
+                $.lastok_chart_data.addRows($.assocArraySize(json_data) - $.lastok_chart_data.getNumberOfRows());
+              }
+            }
+
+            // populate the colums with data
+            for (var row = 0 ; row < $.assocArraySize(json_data) ; row++) {
+              var i=0;
+
+              var formatterDate;
+              // formatter patterns from http://userguide.icu-project.org/formatparse/datetime#TOC-DateTimePatternGenerator
+              if (json_data[row+1]["grouping"] == "day") {
+              	formatterDate = new google.visualization.DateFormat({pattern: 'EEE'});
+              } else if (json_data[row+1]["grouping"] == "week") {
+              	formatterDate = new google.visualization.DateFormat({pattern: 'CWww'});
+              } else if (json_data[row+1]["grouping"] == "month") {
+              	formatterDate = new google.visualization.DateFormat({pattern: 'MMM'});
+              } else {
+              	// unrecognized
+              	formatterDate = new google.visualization.DateFormat({pattern: 'yyyy.MM.dd'});
+              }
+
+              $.lastok_chart_data.setValue(row, i++, formatterDate.formatValue(new Date((json_data[row+1]["range_start"] + 1) * 1000)));
+              $.lastok_chart_data.setValue(row, i++, json_data[row+1]["duration_percent"]["OK"]);
+              $.lastok_chart_data.setValue(row, i++, "{0}: OK: {1}".format(json_data[row+1]["range_name_long"], 
+                                                     json_data[row+1]["duration_human"]["OK"]));
+              $.lastok_chart_data.setValue(row, i++, "color: {0}".format($.config.last_ok.chart.line.color.OK));
+            }
+
+            draw_chart();
+
+          }
+
+          // draw the chart based on the already filled data
+          draw_chart = function(animate) {
+
+            if (!_.isBoolean(animate)) {
+              animate = true;
+            }
+
+            if ($.lastok_chart_data !== undefined) {
+
+              if ($.lastok_chart === undefined) {
+                $("#chart-container").removeClass("hidden").hide();
+                $.lastok_chart = new google.visualization.LineChart($("#chart-container")[0]);
+              }
+
+              // calculate the height and width of the chart - unfortuantely google charts is not responsive
+              // 12vw
+              var chart_width = ($(window).width() / 100) * 15;
+              var chart_height = ($(window).width() / 100) * 3.3;
+              var margin_top = ($(window).width() / 100) * 2 / 60 * 10;
+
+
+              var chart_options = { width: chart_width,
+                                    height: chart_height,
+                                    backgroundColor: 'transparent',
+                                    animation: { duration: 1000, easing: 'out', startup: true },
+                                    vAxis: { ticks: [0, 50, 100] , gridlines: { color: '#585858' }, textPosition: 'out', baselineColor: 'grey', textStyle: { color: 'white'}, viewWindow: {min: 0, max: 100}, format: '#\'%\''},
+                                    hAxis: { gridlines: { color: 'transparent' }, textPosition: 'out', textStyle: { color: 'white' }, baselineColor: 'transparent' },
+                                    legend: { position: 'none' },
+                                    chartArea: { left: 0, top: 0, width: '100%', height: '80%' }, 
+                                    curveType: 'function',
+                                    chartArea: { top: margin_top },
+                                    pointSize: 0,
+                                  };
+
+              if (animate === false) {
+                chart_options.animation.duration = 0;
+                chart_options.animation.startup = false;
+              }
+
+              // draw the chart
+              $.lastok_chart.draw($.lastok_chart_data, chart_options);
+              // animate the display of the chart
+              $('#chart-container').show("fade", {direction: "down", easing: "easeOutCirc"}, 1000);
+            }
+          }
+
+          no_refresh = no_refresh || false;
+
+          if ($.config['last_ok']['chart']['enabled'] === true) {
+            if (no_refresh !== true) {
+              ajaxCall($.lastok_chart_url, 'GET', null, successAction);
+              // set up next round
+              $.myTimeout("lastok_chart", lastok_chart.show.line, 2 * 60 * 1000);
+            } else {
+              draw_chart(false);
+            }
+          }
+        },  
+
+        // area chart 
+        area: function (no_refresh) {
+
+           // fill the data structure for the chart with the data that was fetched
+           successAction = function(json_data, status, xhr) {
+
+            if ($.lastok_chart_data === undefined) {
+              $.lastok_chart_data = new google.visualization.DataTable();
+              // add the columns, with custom roles for tooltips and coloring
+              $.lastok_chart_data.addColumn('string', "Date");
+              $.lastok_chart_data.addColumn('number', "OK");
+              $.lastok_chart_data.addColumn({type: 'string', role: 'tooltip'});
+              $.lastok_chart_data.addColumn({type: 'string', role: 'style'});
+              $.lastok_chart_data.addRows($.assocArraySize(json_data));
+            }
+
+            // check if the number of rows needs to be adjusted
+            if (($.lastok_chart_data.getNumberOfRows()) != $.assocArraySize(json_data)) {
+              if (($.lastok_chart_data.getNumberOfRows()) > $.assocArraySize(json_data)) {
+                // need to remove rows
+                $.lastok_chart_data.removeRows(0, $.lastok_chart_data.getNumberOfRows() - $.assocArraySize(json_data));
+              } else {
+                // need to add more rows
+                $.lastok_chart_data.addRows($.assocArraySize(json_data) - $.lastok_chart_data.getNumberOfRows());
+              }
+            }
+
+            // populate the colums with data
+            for (var row = 0 ; row < $.assocArraySize(json_data) ; row++) {
+              var i=0;
+
+              var formatterDate;
+              // formatter patterns from http://userguide.icu-project.org/formatparse/datetime#TOC-DateTimePatternGenerator
+              if (json_data[row+1]["grouping"] == "day") {
+                formatterDate = new google.visualization.DateFormat({pattern: 'EEE'});
+              } else if (json_data[row+1]["grouping"] == "week") {
+                formatterDate = new google.visualization.DateFormat({pattern: 'CWww'});
+              } else if (json_data[row+1]["grouping"] == "month") {
+                formatterDate = new google.visualization.DateFormat({pattern: 'MMM'});
+              } else {
+                // unrecognized
+                formatterDate = new google.visualization.DateFormat({pattern: 'yyyy.MM.dd'});
+              }
+
+              $.lastok_chart_data.setValue(row, i++, formatterDate.formatValue(new Date((json_data[row+1]["range_start"] + 1) * 1000)));
+              $.lastok_chart_data.setValue(row, i++, json_data[row+1]["duration_percent"]["OK"]);
+              $.lastok_chart_data.setValue(row, i++, "{0}: OK: {1}".format(json_data[row+1]["range_name_long"], 
+                                                     json_data[row+1]["duration_human"]["OK"]));
+              $.lastok_chart_data.setValue(row, i++, "color: {0}".format($.config.last_ok.chart.line.color.OK));
+            }
+
+            draw_chart();
+
+          }
+
+          // draw the chart based on the already filled data
+          draw_chart = function(animate) {
+
+            if (!_.isBoolean(animate)) {
+              animate = true;
+            }
+
+            if ($.lastok_chart_data !== undefined) {
+
+              if ($.lastok_chart === undefined) {
+                $("#chart-container").removeClass("hidden").hide();
+                $.lastok_chart = new google.visualization.AreaChart($("#chart-container")[0]);
+              }
+
+              // calculate the height and width of the chart - unfortuantely google charts is not responsive
+              // 12vw
+              var chart_width = ($(window).width() / 100) * 15;
+              var chart_height = ($(window).width() / 100) * 3.3;
+              var margin_top = ($(window).width() / 100) * 2 / 60 * 10;
+
+
+              var chart_options = { width: chart_width,
+                                    height: chart_height,
+                                    backgroundColor: 'transparent',
+                                    animation: { duration: 1000, easing: 'out', startup: true },
+                                    vAxis: { ticks: [0, 50, 100] , gridlines: { color: '#585858' }, textPosition: 'out', baselineColor: 'grey', textStyle: { color: 'white'}, viewWindow: {min: 0, max: 100}, format: '#\'%\'' },
+                                    hAxis: { gridlines: { color: 'transparent' }, textPosition: 'out', textStyle: { color: 'white' }, baselineColor: 'transparent' },
+                                    legend: { position: 'none' },
+                                    chartArea: { left: 0, top: 0, width: '100%', height: '80%' }, 
+                                    curveType: 'function',
+                                    chartArea: { top: margin_top },
+                                    pointSize: 0,
+                                  };
+
+              if (animate === false) {
+                chart_options.animation.duration = 0;
+                chart_options.animation.startup = false;
+              }
+
+              // draw the chart
+              $.lastok_chart.draw($.lastok_chart_data, chart_options);
+              // animate the display of the chart
+              $('#chart-container').show("fade", {direction: "down", easing: "easeOutCirc"}, 1000);
+            }
+          }
+
+          no_refresh = no_refresh || false;
+
+          if ($.config['last_ok']['chart']['enabled'] === true) {
+            if (no_refresh !== true) {
+              ajaxCall($.lastok_chart_url, 'GET', null, successAction);
+              // set up next round
+              $.myTimeout("lastok_chart", lastok_chart.show.line, 2 * 60 * 1000);
+            } else {
+              draw_chart(false);
+            }
+          }
+        },   
+      },
+
+      hide: {
+        // hide the chart, required for window resizing, as unfortunately the google charts are not responsive
+        bar: function() {
+            $('#chart-container').hide("blind", {direction: "down", easing: "easeOutCirc"}, 200);
+        },
+
+        line: function() {
+            $('#chart-container').hide("fade", {direction: "down", easing: "easeOutCirc"}, 500);
+        },
+        area: function() {
+            $('#chart-container').hide("fade", {direction: "down", easing: "easeOutCirc"}, 500);
+        },               
+      },
+    };
+
+
       // get the lastok state
       function show_lastok() {
-        if ($.config['show_last_ok'] === true) {
+        if ($.config['last_ok']['enabled'] === true) {
+
+          $.lastok_second = $.lastok_second || null;
+          $.lastok_currstate = $.lastok_currstate || null;
+
           successAction = function(data, status, xhr) {
-            if ($('#lastok-container').hasClass("hidden")) {
-              $('#lastok-container').removeClass("hidden");
+
+            // analyze the value
+            if (parseInt(data["duration_sec"]) < 60 * 60) {
+              $.lastok_second = parseInt(data["duration_sec"]);
+              $.lastok_currstate = data["currstate"];
+              // need to increment on a per second basis
+              increment_lastok_frequently();
+            } else {
+              // set the value normally
+              $.lastok_second = null;
+              $.lastok_currstate = null;
+              $('#lastok').html(convert_seconds_to_duration(parseInt(data["duration_sec"])));
+              // change the icon if needed
+              if (!$('#lastok-container .glyphicon').hasClass($.config["icon"]["lastok"][data["currstate"]])) {
+                // remove all classes and add the needed ones back
+                $('#lastok-container .glyphicon').removeClass().addClass("glyphicon topicon {0}".format($.config["icon"]["lastok"][data["currstate"]]));
+              }
+              $('#lastok-container .glyphicon').unbind();
+
+              // unhide the tag if needed
+              if ($('#lastok-container').hasClass("hidden")) {
+                $('#lastok-container').removeClass("hidden");
+              }
+              $('#lastok-container').unbind();
             }
-            // change the icon if needed
-            if (!$('#lastok-container .glyphicon').hasClass($.config["icon"]["lastok"][data["currstate"]])) {
-              // remove all classes and add the needed ones back
-              $('#lastok-container .glyphicon').removeClass().addClass("glyphicon topicon {0}".format($.config["icon"]["lastok"][data["currstate"]]));
-            }
-            // set the value  
-            $('#lastok').html(data["duration_human"]);
           }
-          // do the ajax call
           ajaxCall($.lastok_url, 'GET', null, successAction);
         }
+      };
+
+      // when the last ok state change has happened less than a minute ago,
+      // increment the display until it reaches the minute range
+      function increment_lastok_frequently() {
+        if ($.lastok_second !== null) {
+
+          $('#lastok').html(convert_seconds_to_duration($.lastok_second));
+          if ($('#lastok-container').hasClass("hidden")) {
+            $('#lastok-container').removeClass("hidden");
+          }
+          // change the icon if needed
+          if (!$('#lastok-container .glyphicon').hasClass($.config["icon"]["lastok"][$.lastok_currstate])) {
+            // remove all classes and add the needed ones back
+            $('#lastok-container .glyphicon').removeClass().addClass("glyphicon topicon {0}".format($.config["icon"]["lastok"][$.lastok_currstate]));
+          }
+
+          $('#lastok-container').unbind();        
+          $('#lastok-container .glyphicon').unbind();
+          $('#lastok').unbind();
+
+          // reschedule if needed
+          if ($.lastok_second < 60) {
+            $.lastok_second++;
+            $.myTimeout("increment_lastok_frequently", increment_lastok_frequently, 1000);
+          } else if ($.lastok_second < 60 * 60) {
+            $.lastok_second += 5;
+            $.myTimeout("increment_lastok_frequently", increment_lastok_frequently, 5 * 1000);
+          }
+        }
+      };
+
+      function convert_seconds_to_duration (seconds) {
+        var duration;
+        if (seconds > 60 * 60 * 24 * 7) {
+          duration = seconds / (60 * 60 * 24 * 7);
+          return duration.toFixed(1) + "w";
+        }
+        if (seconds > 60 * 60 * 24) {
+          duration = seconds / (60 * 60 * 24);
+          return duration.toFixed(1) + "d";
+        }
+        if (seconds > 60 * 60) {
+          duration = seconds / (60 * 60);
+          return duration.toFixed(1) + "h";
+        }
+        if (seconds > 59) {
+          duration = seconds / 60;
+          return duration.toFixed(1) + "m";
+        }
+        return seconds + "s";
       };
 
       // check if alert on data freshness should be displayed
@@ -1091,7 +1483,7 @@ $(function() {
           delete_all_messages();
           
           show_lastok();
-          
+
           // add new alerts
           add_new_alerts_if_needed(data_shown);
 
@@ -1243,14 +1635,16 @@ $(function() {
       }, duration, func, name);
     };
 
-    $.myKillTimeout = function (name) {
+    $.myKillTimeout = function (name, lazy) {
+      lazy = lazy || false;
       if (($.timers !== undefined) && (name in $.timers) && ($.timers[name] !== null)) {
         clearTimeout($.timers[name]);
         $.timers[name] = null;
         if ($.debug)
           console.debug("Timeout with name '{0}' has been killed".format(name));
       } else {
-        console.warn("Can't kill timeout with name '{0}': timer not found".format(name));
+        if (lazy !== true)
+          console.warn("Can't kill timeout with name '{0}': timer not found".format(name));
       }
     }
 
@@ -1264,6 +1658,17 @@ $(function() {
           $.config = data;
 
           $.debug = $.config["debug"]["frontend"]["main"] || false;
+
+          // show the charts early
+          if ($.config.last_ok.chart.enabled) {
+            $.myTimeout("lastok_chart", lastok_chart.show[$.config.last_ok.chart.type], 200);
+            $( window ).resize( _.debounce(lastok_chart.hide[$.config.last_ok.chart.type], 100) );
+          }
+          // start timer for lastok display
+          if ($.config['last_ok']['enabled'] === true) {
+            $.myTimeout("lastok", show_lastok, 200);
+          }
+
 
           // draw the grid/initialize $.frame_manager, now with default values
           draw_grid();
@@ -1281,12 +1686,6 @@ $(function() {
           if ($.config["oncall_lookup_enabled"] || $.config["aod_lookup_enabled"]) {
             show_personnel();
             var timer_personnel = setInterval(function() { show_personnel(); }, 1000 * 60 * 5); // every 5 minutes
-          }
-
-          // start timer for lastok display
-          if ($.config['show_last_ok'] === true) {
-            show_lastok();
-            var timer_lastok = setInterval(function() { show_lastok(); }, 1000 * 60); // every minute
           }
 
           // start usermsg feching, if needed
@@ -1316,6 +1715,7 @@ $(function() {
     $.personnel_url = "{0}/php/api/get_dashboard_data.php".format(window.location.href.replace(/^(.*)\/[^\/]*$/, "$1"));   
     $.getconfig_url = "{0}/php/api/expose_configuration.php".format(window.location.href.replace(/^(.*)\/[^\/]*$/, "$1")); 
     $.lastok_url = "{0}/php/api/get_last_state.php".format(window.location.href.replace(/^(.*)\/[^\/]*$/, "$1")); 
+    $.lastok_chart_url = "{0}/php/api/get_last_state_history.php".format(window.location.href.replace(/^(.*)\/[^\/]*$/, "$1")); 
     $.user_msg_url = "{0}/php/api/get_messages.php".format(window.location.href.replace(/^(.*)\/[^\/]*$/, "$1")); 
 
     // base timeout values, will be overridden in detect_display_options() 
@@ -1332,6 +1732,7 @@ $(function() {
     // start fetching the data
     $.monitor_data = null;
     $.metadata = null;
+
     get_monitor_data();
 
     // show the time, set periodical call
@@ -1347,6 +1748,7 @@ $(function() {
     // use debounce from underscore.js to avoid bouncing effect
     // http://stackoverflow.com/a/17754746
     $( window ).resize( _.debounce(detect_display_options, 200) );
+
 
     // set the initial freshness timestamp
     $.alive_timestamp = new Date().getTime() / 1000;
